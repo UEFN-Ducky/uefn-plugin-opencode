@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "label": "OpenCode",
   "description": "OpenCode coding agent for Ducky chats, ready out of the box: Ducky installs its own OpenCode, uses your saved API keys or OpenCode's free model, and gives it Ducky's tools. Install from Store → Gateways.",
-  "min_app_version": "1.2.440",
+  "min_app_version": "1.2.441",
   "default_enabled": true,
   "data_sharing": false,
   "secret_keys": [
