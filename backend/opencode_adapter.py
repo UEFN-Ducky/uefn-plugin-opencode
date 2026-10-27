@@ -28,7 +28,8 @@ from .opencode_stream import FLUSH_S, OpenCodeStream
 
 STOP_GRACE_S = 15.0
 EARLY_STOP_S = 2.0
-DEFAULT_MODEL = {"id": "default", "name": "Default (your keys, else OpenCode's free model)",
+# "auto", not "default": Ducky core reads a "default" model as no model and holds the message.
+DEFAULT_MODEL = {"id": "auto", "name": "Auto (your keys, else OpenCode's free model)",
                  "provider": "OpenCode", "supports_tools": True}
 # conv id → (client, session id) of the running turn, for request_stop (adapters are rebuilt per call).
 _running: dict[str, tuple[Any, str]] = {}

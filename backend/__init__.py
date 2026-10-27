@@ -15,8 +15,10 @@ _flow = LoginFlow()
 
 
 def _normalize_model(model: str) -> str:
+    # Core treats "default" as no model (the message would wait for a pick); "auto" lets
+    # OpenCode choose: the person's keys, else its free model.
     mid = (model or "").strip()
-    return mid if mid and mid.lower() not in ("auto",) else "default"
+    return mid if mid and mid.lower() not in ("auto", "default") else "auto"
 
 
 def _test_key(api_key: str) -> dict[str, Any]:

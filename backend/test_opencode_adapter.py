@@ -71,7 +71,7 @@ def turn(oc, fixture_lines, tmp_path, monkeypatch):
     mcp = tmp_path / "mcp.json"
     mcp.write_text(json.dumps({"mcpServers": {"uefn": {"command": "bridge", "args": ["--ducky-run-id", "r9"]}}}))
 
-    def run(name, *, session_id="", mode="agent", model="default", cancel=None, lines=None):
+    def run(name, *, session_id="", mode="agent", model="auto", cancel=None, lines=None):
         hub = FakeHub()
         client = FakeClient(hub, lines if lines is not None else fixture_lines(name))
         events = []
@@ -92,7 +92,7 @@ def test_new_session_turn(turn):
     assert result.reply_text == "hi there" and result.upstream_session_id == "ses_new"
     assert result.usage["output_tokens"] == 25
     create = next(c for c in client.calls if c[0] == "create")
-    assert create[1] == "build" and create[2] is None  # "default" is never sent
+    assert create[1] == "build" and create[2] is None  # "auto" lets OpenCode pick; nothing is sent
     assert create[3][1]["action"] == "ducky-conv1*"
     assert client.calls[0] == ("put_mcp", "ducky-conv1", ["bridge", "--ducky-run-id", "r9"])
     prompt = next(c for c in client.calls if c[0] == "prompt")
@@ -172,7 +172,9 @@ def test_register_adds_picker_row_agent_login_and_hookup(oc, monkeypatch):
     assert calls["provider"][0] == "opencode" and calls["provider"][1]["key_optional"] is True
     aid, kw = calls["agent"]
     assert aid == "opencode" and callable(kw["login"]) and callable(kw["login_status"])
-    assert kw["normalize_model"]("") == "default" and kw["normalize_model"]("anthropic/x") == "anthropic/x"
+    # "default" would make Ducky core hold the message for a model pick.
+    assert kw["normalize_model"]("") == kw["normalize_model"]("default") == "auto"
+    assert kw["normalize_model"]("anthropic/x") == "anthropic/x"
     assert calls["ide"] == "opencode"
     assert type(kw["factory"]()).__name__ == "OpenCodeAdapter"
 
@@ -184,4 +186,4 @@ def test_detect_never_starts_a_server(oc, monkeypatch):
     monkeypatch.setattr(ad, "shared_server", lambda *a, **k: pytest.fail("detect started the server"))
     info = ad.OpenCodeAdapter().detect(type("S", (), {"coding_agents": {}})())
     assert info.available and "first message" in info.status
-    assert info.models[0]["id"] == "default"
+    assert info.models[0]["id"] == "auto"

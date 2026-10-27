@@ -72,7 +72,7 @@ def agent_for_mode(mode: str) -> str:
 
 
 def model_ref(model: str, effort: str = "") -> dict[str, str] | None:
-    """``provider/model`` → OpenCode's Model.Ref; None for the "default" sentinel (never sent)."""
+    """``provider/model`` → OpenCode's Model.Ref; None for the "auto"/"default" sentinels (never sent)."""
     mid = (model or "").strip()
     if not mid or mid.lower() in ("default", "auto") or "/" not in mid:
         return None
