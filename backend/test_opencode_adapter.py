@@ -179,6 +179,16 @@ def test_register_adds_picker_row_agent_login_and_hookup(oc, monkeypatch):
     assert type(kw["factory"]()).__name__ == "OpenCodeAdapter"
 
 
+def test_session_dir_is_always_absolute(oc, tmp_path, monkeypatch):
+    ad = oc("opencode_adapter")
+    monkeypatch.chdir(tmp_path)
+    home = str(ad.Path.home())
+    assert ad.session_dir(".") == home  # core's "no project" (runner: cwd = project_root or ".")
+    assert ad.session_dir("") == home and ad.session_dir(str(tmp_path / "gone")) == home
+    (tmp_path / "proj").mkdir()
+    assert ad.session_dir("proj") == str((tmp_path / "proj").resolve())
+
+
 def test_detect_never_starts_a_server(oc, monkeypatch):
     ad = oc("opencode_adapter")
     inst = oc("opencode_install")

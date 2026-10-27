@@ -70,6 +70,17 @@ def refresh_models_async(client: Any, directory: str) -> None:
     threading.Thread(target=work, name="opencode-models", daemon=True).start()
 
 
+def session_dir(cwd: str) -> str:
+    """An absolute folder for the OpenCode session (it answers 500 to a relative one).
+
+    Core passes "." when the chat has no project; that is the home folder here, not
+    wherever the app process happens to run.
+    """
+    if not cwd or cwd.strip() in (".", "./") or not Path(cwd).is_dir():
+        return str(Path.home())
+    return str(Path(cwd).resolve())
+
+
 def approval_mode(conv_id: str) -> str:
     try:
         from backend.tools.panel.permission_prompt import permission_mode
@@ -161,6 +172,8 @@ class OpenCodeAdapter:
 
         def status(text: str) -> None:
             push({"type": "status", "text": text, "conv_id": conv_id, "run_id": run_id})
+
+        cwd = session_dir(cwd)
 
         binary = install.resolve_bin(cli_path)
         if not binary:

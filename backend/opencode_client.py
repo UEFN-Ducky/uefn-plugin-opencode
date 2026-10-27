@@ -81,7 +81,8 @@ class OpenCodeClient:
                 detail = str(json.loads(exc.read() or b"{}").get("message") or "")
             except (ValueError, AttributeError, OSError):
                 pass
-            raise OpenCodeError(exc.code, detail or f"OpenCode returned HTTP {exc.code}") from None
+            where = f"{method} {path}"
+            raise OpenCodeError(exc.code, f"{where}: {detail or f'HTTP {exc.code}'}") from None
         return json.loads(raw) if raw else None
 
     def info(self, timeout: float = 5.0) -> dict[str, Any]:
