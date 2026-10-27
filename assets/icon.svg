@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="112" fill="#111318"/>
+  <rect x="24" y="24" width="464" height="464" rx="92" fill="none" stroke="#2a2f3a" stroke-width="8"/>
+  <!-- terminal window -->
+  <rect x="96" y="128" width="320" height="256" rx="28" fill="#1b1f27" stroke="#f4f4f5" stroke-width="16"/>
+  <circle cx="140" cy="168" r="10" fill="#f4f4f5"/>
+  <circle cx="172" cy="168" r="10" fill="#8b8f99"/>
+  <circle cx="204" cy="168" r="10" fill="#5b606b"/>
+  <!-- prompt chevron and cursor -->
+  <path d="M152 236 L208 280 L152 324" fill="none" stroke="#f4f4f5" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="236" y="306" width="104" height="22" rx="11" fill="#facc15"/>
+</svg>
