@@ -1,0 +1,78 @@
+{
+  "id": "opencode",
+  "kind": "plugin",
+  "version": "1.0.0",
+  "label": "OpenCode",
+  "description": "OpenCode coding agent for Ducky chats, ready out of the box: Ducky installs its own OpenCode, uses your saved API keys or OpenCode's free model, and gives it Ducky's tools. Install from Store → Gateways.",
+  "min_app_version": "1.2.440",
+  "default_enabled": true,
+  "data_sharing": false,
+  "secret_keys": [
+    "opencode"
+  ],
+  "contributes": {
+    "llm.providers": [
+      {
+        "id": "opencode",
+        "label": "OpenCode",
+        "kind": "secret",
+        "secret_key": "opencode",
+        "key_optional": true,
+        "order": 85
+      }
+    ],
+    "llm.coding_agents": [
+      {
+        "id": "opencode",
+        "label": "OpenCode",
+        "order": 85
+      }
+    ],
+    "ide.hookups": [
+      {
+        "kind": "opencode",
+        "label": "OpenCode"
+      }
+    ],
+    "walkthrough": {
+      "id": "opencode",
+      "title": "Set up OpenCode",
+      "auto_start": "first_enable",
+      "settings_tab": "LLMs",
+      "steps": [
+        {
+          "target": "settings.llms.provider.opencode",
+          "title": "Open OpenCode",
+          "body": "Press the OpenCode row. No key is needed; an OpenCode API key here is optional.",
+          "advance": "require_click",
+          "mode": "rect"
+        },
+        {
+          "target": "settings.llms.provider.agent",
+          "title": "OpenCode is ready",
+          "body": "Nothing to install. Ducky downloads OpenCode on the first message and uses the API keys you saved in Ducky, or OpenCode's free model.",
+          "advance": "next",
+          "mode": "rect"
+        },
+        {
+          "target": "settings.llms.provider.agent.detect",
+          "title": "Optional: sign in",
+          "body": "Have a ChatGPT, GitHub Copilot or SuperGrok subscription? Log in here and OpenCode uses it.",
+          "advance": "next",
+          "mode": "rect"
+        },
+        {
+          "target": "settings.llms.back",
+          "title": "Pick OpenCode in a chat",
+          "body": "Choose OpenCode in the chat's model picker and send a message.",
+          "advance": "require_click",
+          "mode": "rect"
+        }
+      ]
+    }
+  },
+  "backend": {
+    "entry": "backend",
+    "register": "register"
+  }
+}
