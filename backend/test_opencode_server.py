@@ -18,7 +18,7 @@ class H(BaseHTTPRequestHandler):
         if self.headers.get("Authorization") != OK or os.environ.get("OPENCODE_SERVER_PASSWORD"):
             self.send_response(401); self.end_headers(); return
         if self.path.startswith("/api/info"):
-            body = json.dumps({"version": "2.2.0", "keys": sorted(k for k in os.environ if k.endswith("_API_KEY"))}).encode()
+            body = json.dumps({"version": "2.2.0", "keys": sorted(k for k in os.environ if k.endswith("_API_KEY")), "data": os.environ.get("XDG_DATA_HOME", "")}).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(body); return
         if self.path.startswith("/api/event"):
             self.send_response(200); self.send_header("Content-Type", "text/event-stream"); self.end_headers()
@@ -62,6 +62,26 @@ def test_server_starts_with_private_password_and_keys(oc, tmp_path, monkeypatch)
     finally:
         server.stop()
     assert not server.alive()
+
+
+def test_each_account_runs_its_own_server_with_its_own_data_folder(oc, tmp_path):
+    """OpenCode account 2 starts its own server reading its own auth.json."""
+    srv_mod = oc("opencode_server")
+    binary = _fake_binary(tmp_path)
+    acc2 = str(tmp_path / "acc2")
+    first = srv_mod.shared_server(binary, dict)
+    second = srv_mod.shared_server(binary, lambda: {"XDG_DATA_HOME": acc2}, account=acc2)
+    try:
+        assert first is not second and srv_mod.current_server() is first
+        assert srv_mod.shared_server(binary, dict, account=acc2) is second
+        second._env_fn = lambda: {"XDG_DATA_HOME": acc2}
+        c1, _ = first.connect()
+        c2, _ = second.connect()
+        assert c1.base_url != c2.base_url
+        assert c1.info()["data"] != acc2 and c2.info()["data"] == acc2
+    finally:
+        first.stop()
+        second.stop()
 
 
 def test_one_reader_routes_events_to_their_session(oc, tmp_path):

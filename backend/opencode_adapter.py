@@ -20,7 +20,7 @@ from backend.agent.coding_agents.base import CodingAgentCapabilities, CodingAgen
 from backend.agent.coding_agents.settings_helpers import coding_agent_cfg
 
 from . import opencode_install as install
-from .opencode_auth import model_rows, server_env
+from .opencode_auth import DATA_ENV, model_rows, note_key_limit, server_env
 from .opencode_client import OpenCodeError
 from .opencode_config import agent_for_mode, chat_tag, mcp_entry, model_ref, permission_card, session_rules
 from .opencode_server import ServerStartError, current_server, shared_server
@@ -183,25 +183,31 @@ class OpenCodeAdapter:
                 return fail(str(done.get("error") or "Could not install OpenCode"))
             binary = str(done["cli_path"])
 
-        server = shared_server(binary, server_env)
-        server.begin_turn()
-        sid = ""
+        # A login account (core's account_env) is its own data folder, so its own server.
+        data_home = str((env or {}).get(DATA_ENV) or "")
+        account_env = {DATA_ENV: data_home} if data_home else {}
+        server = shared_server(binary, lambda: {**server_env(), **account_env}, account=data_home)
+        if not server.alive():
+            status("Starting OpenCode…")
         try:
-            if not server.alive():
-                status("Starting OpenCode…")
-            try:
-                client, hub = server.connect()
-            except (ServerStartError, OSError) as exc:
-                return fail(str(exc))
+            # Before begin_turn: a picked key that changed since the last turn restarts the idle server.
+            client, hub = server.connect()
+        except (ServerStartError, OSError) as exc:
+            return fail(str(exc))
+        server.begin_turn()
+        try:
             refresh_models_async(client, cwd)
             try:
-                return self._turn(client, hub, prompt=prompt, system_prompt=system_prompt, cwd=cwd,
-                                  conv_id=conv_id, model=model, mcp_config_path=mcp_config_path, env=env,
-                                  push=push, session_id=session_id, run_id=run_id, cancel=cancel,
-                                  timeout_s=timeout_s, image_paths=image_paths or [], mode=mode,
-                                  status=status, alive=server.alive)
+                result = self._turn(client, hub, prompt=prompt, system_prompt=system_prompt, cwd=cwd,
+                                    conv_id=conv_id, model=model, mcp_config_path=mcp_config_path, env=env,
+                                    push=push, session_id=session_id, run_id=run_id, cancel=cancel,
+                                    timeout_s=timeout_s, image_paths=image_paths or [], mode=mode,
+                                    status=status, alive=server.alive)
             except (OpenCodeError, OSError) as exc:
-                return fail(f"OpenCode: {exc}")
+                result = fail(f"OpenCode: {exc}")
+            if not result.ok:
+                note_key_limit(model, result.error)
+            return result
         finally:
             server.end_turn()
 

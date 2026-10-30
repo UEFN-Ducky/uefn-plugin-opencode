@@ -197,3 +197,38 @@ def test_detect_never_starts_a_server(oc, monkeypatch):
     info = ad.OpenCodeAdapter().detect(type("S", (), {"coding_agents": {}})())
     assert info.available and "first message" in info.status
     assert info.models[0]["id"] == "auto"
+
+
+def test_login_account_is_its_own_data_folder(oc, tmp_path):
+    auth = oc("opencode_auth")
+    acc = tmp_path / "acc2"
+    assert auth.account_env(str(acc)) == {"XDG_DATA_HOME": str(acc)}
+    assert auth.account_status(str(acc)) == {"loggedIn": False}
+    auth.auth_path(acc).parent.mkdir(parents=True)
+    auth.auth_path(acc).write_text('{"openai": {"type": "oauth"}}', encoding="utf-8")
+    assert auth.account_status(str(acc)) == {"loggedIn": True, "plan": "openai"}
+    auth.account_logout(str(acc))
+    assert auth.account_status(str(acc))["loggedIn"] is False
+
+
+def test_next_key_after_a_quota_error(oc, monkeypatch):
+    import sys
+    import types
+
+    import backend.agent as agent_pkg
+
+    auth = oc("opencode_auth")
+    exhausted = set()
+    fake = types.SimpleNamespace(
+        pick_account=lambda p: "b" if (p, "a") in exhausted else "a",
+        account_key=lambda p, a: f"{p}-{a}",
+        mark_exhausted=lambda p, a, until=None: exhausted.add((p, a)),
+    )
+    monkeypatch.setattr(agent_pkg, "accounts", fake, raising=False)
+    monkeypatch.setitem(sys.modules, "backend.agent.accounts", fake)
+
+    assert auth.server_env()["XAI_API_KEY"] == "spacexai-a"
+    assert auth.note_key_limit("xai/grok-4", "Error 429: rate limit") == "spacexai"
+    assert auth.server_env()["XAI_API_KEY"] == "spacexai-b"
+    assert auth.server_env()["OPENCODE_API_KEY"] == "opencode-a"  # other providers keep theirs
+    assert auth.note_key_limit("xai/grok-4", "model not found") == ""

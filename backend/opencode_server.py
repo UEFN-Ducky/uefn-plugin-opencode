@@ -170,27 +170,30 @@ def _kill_tree(proc: subprocess.Popen) -> None:
             pass
 
 
-_server: OpenCodeServer | None = None
+# One server per account ("" = OpenCode's own data folder): each reads its own auth.json.
+_servers: dict[str, OpenCodeServer] = {}
 _server_lock = threading.Lock()
 
 
-def shared_server(binary: str, env_fn: Callable[[], dict[str, str]]) -> OpenCodeServer:
-    """The app-wide server for this binary (a new binary replaces the old server)."""
-    global _server
+def shared_server(binary: str, env_fn: Callable[[], dict[str, str]], account: str = "") -> OpenCodeServer:
+    """The app-wide server for this account and binary (a new binary replaces the old server)."""
     with _server_lock:
-        if _server is not None and _server.binary != binary:
-            _server.stop()
-            _server = None
-        if _server is None:
-            _server = OpenCodeServer(binary, env_fn)
-        return _server
+        server = _servers.get(account)
+        if server is not None and server.binary != binary:
+            server.stop()
+            server = None
+        if server is None:
+            server = _servers[account] = OpenCodeServer(binary, env_fn)
+        else:
+            server._env_fn = env_fn  # the turn's picked key wins; connect() restarts between turns
+        return server
 
 
-def current_server() -> OpenCodeServer | None:
-    return _server
+def current_server(account: str = "") -> OpenCodeServer | None:
+    return _servers.get(account)
 
 
 @atexit.register
 def _stop_on_exit() -> None:
-    if _server is not None:
-        _server.stop()
+    for server in list(_servers.values()):
+        server.stop()
