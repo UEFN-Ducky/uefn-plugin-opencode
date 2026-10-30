@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from . import opencode_auth as _auth
 from .opencode_auth import LoginFlow
 
 _INSTALL_HELP = (
@@ -101,6 +102,7 @@ def register(api) -> None:
         test_key=_test_key,
         key_optional=True,
         shows_thinking_effort=True,
+        is_quota_error=_auth.is_limit_error,
     )
     api.register_coding_agent(
         "opencode",
@@ -115,6 +117,11 @@ def register(api) -> None:
         login=login,
         login_status=login_status,
         login_submit=login_submit,
+        account_env=_auth.account_env,
+        account_login=_auth.account_login,
+        account_status=_auth.account_status,
+        account_logout=_auth.account_logout,
+        is_limit_error=_auth.is_limit_error,
         # OpenCode enforces its own permissions; its requests become Ducky approval cards.
         chat_permission_modes=("ask", "edits", "all"),
     )

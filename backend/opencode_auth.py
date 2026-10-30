@@ -8,7 +8,9 @@ own OAuth endpoints from a Ducky button. Nothing here is ever logged.
 
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 from typing import Any
 
 # Ducky secret id → OpenCode env name (from GET /api/integration on OpenCode 2.2).
@@ -23,21 +25,108 @@ KEY_ENV = {
 }
 
 
-def server_env() -> dict[str, str]:
-    """Env for the OpenCode server: only keys that are actually saved."""
+def picked_key(secret: str) -> tuple[str, str]:
+    """(account id, key) of the provider's picked key account; falls back to the plain saved key."""
+    try:
+        from backend.agent import accounts
+
+        acc = accounts.pick_account(secret)
+        key = (accounts.account_key(secret, acc) or "").strip()
+        if key:
+            return acc, key
+    except Exception:
+        pass
     try:
         from backend.agent.secrets import get_key
-    except ImportError:
-        return {}
+
+        return "default", (get_key(secret) or "").strip()
+    except Exception:
+        return "", ""
+
+
+def server_env() -> dict[str, str]:
+    """Env for the OpenCode server: only keys that are actually saved (each provider's picked one)."""
     env: dict[str, str] = {}
     for secret, name in KEY_ENV.items():
-        try:
-            value = (get_key(secret) or "").strip()
-        except Exception:
-            value = ""
+        value = picked_key(secret)[1]
         if value:
             env[name] = value
     return env
+
+
+# ── accounts ────────────────────────────────────────────────────────────
+# OpenCode keeps its sign-ins in ``$XDG_DATA_HOME/opencode/auth.json``: a login account is
+# its own data folder, run by its own server.
+
+DATA_ENV = "XDG_DATA_HOME"
+
+
+def auth_path(config_dir: str | Path) -> Path:
+    return Path(config_dir) / "opencode" / "auth.json"
+
+
+def account_env(config_dir: str) -> dict[str, str]:
+    Path(config_dir).mkdir(parents=True, exist_ok=True)
+    return {DATA_ENV: str(config_dir)}
+
+
+def account_login(config_dir: str) -> dict[str, Any]:
+    from . import opencode_install as install
+
+    return {"argv": [install.resolve_bin("") or "opencode", "auth", "login"], "env": account_env(config_dir)}
+
+
+def account_status(config_dir: str) -> dict[str, Any]:
+    try:
+        data = json.loads(auth_path(config_dir).read_text(encoding="utf-8"))
+    except Exception:
+        data = {}
+    names = sorted(k for k, v in data.items() if isinstance(v, dict)) if isinstance(data, dict) else []
+    return {"loggedIn": bool(names), **({"plan": ", ".join(names)} if names else {})}
+
+
+def account_logout(config_dir: str) -> None:
+    try:
+        auth_path(config_dir).unlink()
+    except OSError:
+        pass
+
+
+# What OpenCode relays from its providers when a key or plan is spent.
+_LIMIT_RE = re.compile(
+    r"\b429\b|rate[_ ]limit|too many requests|insufficient[_ ]quota|quota exceeded"
+    r"|resource[_ ]exhausted|usage limit|exceeded your current quota",
+    re.I,
+)
+
+
+def is_limit_error(text: str) -> bool:
+    return isinstance(text, str) and bool(_LIMIT_RE.search(text))
+
+
+# OpenCode providerID (``provider/model``) → Ducky secret id.
+MODEL_SECRET = {"anthropic": "anthropic", "openai": "openai", "google": "gemini", "moonshotai": "kimi",
+                "xai": "spacexai", "openrouter": "openrouter", "opencode": "opencode"}
+
+
+def note_key_limit(model: str, *texts: Any) -> str:
+    """A turn hit a quota: the model's provider key is marked so the next turn uses the next one.
+
+    Returns the secret id marked ("" when nothing was).
+    """
+    secret = MODEL_SECRET.get((model or "").split("/", 1)[0], "opencode")
+    if not any(is_limit_error(t) for t in texts if t):
+        return ""
+    acc, key = picked_key(secret)
+    if not (acc and key):
+        return ""
+    try:
+        from backend.agent.accounts import mark_exhausted
+
+        mark_exhausted(secret, acc)
+    except Exception:
+        return ""
+    return secret
 
 
 def model_rows(models: list[dict[str, Any]]) -> list[dict[str, Any]]:
