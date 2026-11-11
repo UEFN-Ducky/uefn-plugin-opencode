@@ -9,7 +9,9 @@ own OAuth endpoints from a Ducky button. Nothing here is ever logged.
 from __future__ import annotations
 
 import json
+import os
 import re
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -61,31 +63,108 @@ def server_env() -> dict[str, str]:
 DATA_ENV = "XDG_DATA_HOME"
 
 
-def auth_path(config_dir: str | Path) -> Path:
-    return Path(config_dir) / "opencode" / "auth.json"
+def auth_path(config_dir: str | Path | None) -> Path:
+    """The account's auth.json. Core passes None for ``default``: OpenCode's own data folder
+    (``$XDG_DATA_HOME``, else ``~/.local/share``, on Windows too). ``Path(None)`` raised here,
+    so Log in and Log out on the Default row failed and it always read logged out."""
+    root = config_dir or os.environ.get(DATA_ENV) or Path.home() / ".local" / "share"
+    return Path(root) / "opencode" / "auth.json"
 
 
-def account_env(config_dir: str) -> dict[str, str]:
+def account_env(config_dir: str | None) -> dict[str, str]:
+    if not config_dir:
+        return {}
     Path(config_dir).mkdir(parents=True, exist_ok=True)
     return {DATA_ENV: str(config_dir)}
 
 
-def account_login(config_dir: str) -> dict[str, Any]:
+def account_login(config_dir: str | None) -> dict[str, Any]:
+    """Terminal fallback for cores without account_browser_login."""
     from . import opencode_install as install
 
     return {"argv": [install.resolve_bin("") or "opencode", "auth", "login"], "env": account_env(config_dir)}
 
 
-def account_status(config_dir: str) -> dict[str, Any]:
+INSTALLING = "OpenCode isn't installed yet. Ducky is installing it; sign-in starts by itself."
+# ponytail: one sign-in per account in this process; a second Log in replaces it.
+_login_lock = threading.Lock()
+_logins: dict[str, "LoginFlow"] = {}  # account folder ("" = default) -> its running sign-in
+
+
+def account_browser_login(config_dir: str | None) -> dict[str, Any]:
+    """Settings' Log in, one click: OpenCode's own OAuth through Ducky's server, the link
+    opened in the browser, the code (when there is one) shown in the row. No terminal tab."""
+    import webbrowser
+
+    from . import opencode_install as install
+    from .opencode_server import shared_server
+
+    binary = install.resolve_bin("")
+    if not binary:
+        install.install_in_background()
+        return {"error": INSTALLING}
+    key, extra = str(config_dir or ""), account_env(config_dir)
+    flow = LoginFlow()
+    try:
+        client, _hub = shared_server(binary, lambda: {**server_env(), **extra}, account=key).connect()
+        started = flow.start(client)
+    except (RuntimeError, OSError) as exc:  # the server didn't start, or refused the call
+        return {"error": f"OpenCode sign-in could not start: {exc}"}
+    if not started.get("ok"):
+        return {"error": str(started.get("error") or "OpenCode did not start the sign-in.")}
+    if started.get("needs_code"):
+        # ponytail: a sign-in that wants a code pasted back needs a text box the row lacks.
+        return {"error": "This sign-in needs a code pasted back. Add that provider's API key under "
+                         "Settings → LLMs instead; OpenCode uses it automatically."}
+    url, code = str(started.get("auth_url") or ""), str(started.get("user_code") or "")
+    if url:
+        try:
+            webbrowser.open(url)
+        except Exception:  # noqa: BLE001 - the row still shows where to go
+            pass
+    with _login_lock:
+        _logins[key] = flow
+    message = "Sign in in the browser tab that opened…" if url else str(started.get("message") or "Waiting for sign-in…")
+    return {"message": f"{message} Code: {code}" if code else message}
+
+
+def _login_state(config_dir: str | None) -> dict[str, Any]:
+    """{pending[, installing]} · {error} · {} from the install and this account's sign-in."""
+    from . import opencode_install as install
+
+    if install.busy():
+        return {"pending": True, "installing": True}
+    key = str(config_dir or "")
+    with _login_lock:
+        flow = _logins.get(key)
+    if flow is None:
+        return {}
+    try:
+        state = flow.status()
+    except (RuntimeError, OSError) as exc:
+        state = {"error": f"Sign-in stopped: {exc}"}
+    if state.get("needs_login"):
+        return {"pending": True}
+    with _login_lock:
+        _logins.pop(key, None)
+    return {"error": str(state["error"])} if state.get("error") else {}
+
+
+def account_status(config_dir: str | None) -> dict[str, Any]:
+    state = _login_state(config_dir)
+    if state.get("pending"):
+        return {"loggedIn": False, **state}
     try:
         data = json.loads(auth_path(config_dir).read_text(encoding="utf-8"))
     except Exception:
         data = {}
     names = sorted(k for k, v in data.items() if isinstance(v, dict)) if isinstance(data, dict) else []
-    return {"loggedIn": bool(names), **({"plan": ", ".join(names)} if names else {})}
+    if names:
+        return {"loggedIn": True, "plan": ", ".join(names)}
+    return {"loggedIn": False, **state}
 
 
-def account_logout(config_dir: str) -> None:
+def account_logout(config_dir: str | None) -> None:
     try:
         auth_path(config_dir).unlink()
     except OSError:

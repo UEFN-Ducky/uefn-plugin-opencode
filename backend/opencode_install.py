@@ -188,6 +188,25 @@ def install(on_progress: Callable[[str], None] | None = None) -> dict[str, Any]:
             _state["busy"] = False
 
 
+def busy() -> bool:
+    return bool(_state.get("busy"))
+
+
+def install_in_background() -> None:
+    """Log in with no OpenCode yet: install it; the accounts row waits and signs in by itself."""
+    if busy():
+        return
+    _state.update(busy=True, error="")  # before the thread: the row's first poll sees it
+
+    def run() -> None:
+        try:
+            install()
+        finally:
+            _state["busy"] = False  # install() returns early, flag untouched, when a copy landed meanwhile
+
+    threading.Thread(target=run, name="opencode-install", daemon=True).start()
+
+
 def status_text() -> str:
     if _state.get("busy"):
         return str(_state.get("message") or "Installing OpenCode…")

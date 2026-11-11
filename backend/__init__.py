@@ -118,7 +118,8 @@ def register(api) -> None:
         login_status=login_status,
         login_submit=login_submit,
         account_env=_auth.account_env,
-        account_login=_auth.account_login,
+        account_login=_auth.account_login,  # older cores: a terminal tab
+        account_browser_login=_auth.account_browser_login,
         account_status=_auth.account_status,
         account_logout=_auth.account_logout,
         is_limit_error=_auth.is_limit_error,

@@ -211,6 +211,96 @@ def test_login_account_is_its_own_data_folder(oc, tmp_path):
     assert auth.account_status(str(acc))["loggedIn"] is False
 
 
+def test_default_account_is_opencodes_own_data_folder(oc, tmp_path, monkeypatch):
+    """Core passes None for the default account: Path(None) raised, so Log in and Log out on
+    the Default row failed and it always read logged out."""
+    auth = oc("opencode_auth")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    assert auth.account_env(None) == {}
+    assert auth.account_login(None)["env"] == {}
+    assert auth.account_status(None) == {"loggedIn": False}
+    auth.auth_path(None).parent.mkdir(parents=True)
+    auth.auth_path(None).write_text('{"github-copilot": {"type": "oauth"}}', encoding="utf-8")
+    assert auth.account_status(None) == {"loggedIn": True, "plan": "github-copilot"}
+    auth.account_logout(None)
+    assert auth.account_status(None) == {"loggedIn": False}
+    monkeypatch.delenv("XDG_DATA_HOME")
+    assert auth.auth_path(None) == auth.Path.home() / ".local" / "share" / "opencode" / "auth.json"
+
+
+class _OAuthClient:
+    """OpenCode's sign-in endpoints: a device-code offer that completes on the third poll."""
+
+    def __init__(self, mode="auto"):
+        self.mode, self.polls = mode, 0
+
+    def integrations(self):
+        return [{"id": "github-copilot", "methods": [{"type": "oauth", "id": "device"}]}]
+
+    def oauth_start(self, integration, method):
+        return {"attemptID": "att1", "url": "https://github.com/login/device", "mode": self.mode,
+                "instructions": "Enter code ABCD-1234"}
+
+    def oauth_status(self, integration, attempt):
+        self.polls += 1
+        return {"status": "complete" if self.polls >= 3 else "pending"}
+
+
+def _one_click(oc, monkeypatch, tmp_path, client, binary="opencode.exe"):
+    auth, inst, srv = oc("opencode_auth"), oc("opencode_install"), oc("opencode_server")
+    opened, servers = [], []
+    monkeypatch.setattr(inst, "resolve_bin", lambda override="": binary)
+    monkeypatch.setattr(srv, "shared_server", lambda b, env_fn, account="": servers.append((account, env_fn())) or type(
+        "S", (), {"connect": lambda self: (client, None)})())
+    monkeypatch.setattr(auth, "server_env", lambda: {})
+    monkeypatch.setattr("webbrowser.open", lambda url: opened.append(url))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))  # never the real default account
+    monkeypatch.setitem(inst._state, "busy", False)
+    auth._logins.clear()
+    return auth, inst, opened, servers
+
+
+def test_accounts_log_in_is_one_click_with_no_terminal(oc, monkeypatch, tmp_path):
+    client = _OAuthClient()
+    auth, _inst, opened, servers = _one_click(oc, monkeypatch, tmp_path, client)
+    acc = str(tmp_path / "acc3")
+    out = auth.account_browser_login(acc)
+    assert out == {"message": "Sign in in the browser tab that opened… Code: ABCD-1234"}
+    assert opened == ["https://github.com/login/device"]
+    assert servers == [(acc, {"XDG_DATA_HOME": acc})]  # the account's own server and data folder
+    assert auth.account_status(acc) == {"loggedIn": False, "pending": True}
+    assert auth.account_status(acc) == {"loggedIn": False, "pending": True}
+    auth.auth_path(acc).parent.mkdir(parents=True)
+    auth.auth_path(acc).write_text('{"github-copilot": {"type": "oauth"}}', encoding="utf-8")
+    assert auth.account_status(acc) == {"loggedIn": True, "plan": "github-copilot"}
+    assert auth._logins == {}
+
+
+def test_a_failed_sign_in_says_so_and_a_paste_back_code_is_not_offered(oc, monkeypatch, tmp_path):
+    client = _OAuthClient()
+    client.oauth_status = lambda *_a: {"status": "expired"}
+    auth, _inst, _opened, _servers = _one_click(oc, monkeypatch, tmp_path, client)
+    auth.account_browser_login(None)
+    assert auth.account_status(None)["error"].startswith("Sign-in expired")
+    assert auth.account_status(None) == {"loggedIn": False}  # said once; the row is back to Log in
+    auth2, _inst, opened, _servers = _one_click(oc, monkeypatch, tmp_path, _OAuthClient(mode="code"))
+    assert "API key" in auth2.account_browser_login(None)["error"] and opened == []
+
+
+def test_log_in_installs_opencode_first(oc, monkeypatch, tmp_path):
+    auth, inst, _opened, servers = _one_click(oc, monkeypatch, tmp_path, _OAuthClient(), binary="")
+    started = []
+    monkeypatch.setattr(inst.threading, "Thread", lambda target, **_k: type(
+        "T", (), {"start": lambda self: started.append(target)})())
+    monkeypatch.setitem(inst._state, "busy", False)
+    assert auth.account_browser_login(None) == {"error": auth.INSTALLING}
+    assert servers == [] and len(started) == 1
+    assert auth.account_status(None) == {"loggedIn": False, "pending": True, "installing": True}
+    monkeypatch.setattr(inst, "install", lambda: {"ok": True})
+    started[0]()
+    assert inst.busy() is False
+
+
 def test_next_key_after_a_quota_error(oc, monkeypatch):
     import sys
     import types
